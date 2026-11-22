@@ -56,8 +56,10 @@ function approxSize(row: unknown[]): number {
 /** Map a pg error to a SafeSqlError with an actionable hint. */
 export function pgError(err: unknown): SafeSqlError {
   if (err instanceof SafeSqlError) return err;
-  const e = err as { code?: string; message?: string; hint?: string; position?: string };
-  const msg = e.message ?? String(err);
+  const e = err as { code?: string; message?: string; hint?: string; position?: string; errors?: { message?: string }[] };
+  let msg = e.message || String(err);
+  // Node reports a refused connection to a dual-stack host ("localhost") as an AggregateError with an empty message.
+  if (!e.message && Array.isArray(e.errors) && e.errors.length) msg = e.errors.map((x) => x.message).join("; ");
   switch (e.code) {
     case "57014":
       return new SafeSqlError(
@@ -81,10 +83,11 @@ export function pgError(err: unknown): SafeSqlError {
     case "42501":
       return new SafeSqlError("SQL_ERROR", msg, "The database role lacks a privilege for this object.");
   }
-  if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|timeout expired|Connection terminated/i.test(msg))
+  const network = /^(ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|ENETUNREACH)$/.test(e.code ?? "");
+  if (network || /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|timeout expired|Connection terminated/i.test(msg))
     return new SafeSqlError(
       "CONNECTION",
-      `Cannot reach PostgreSQL: ${msg}`,
+      `Cannot reach PostgreSQL: ${msg || e.code}`,
       "Check host, port and that the server is running and reachable.",
     );
   return new SafeSqlError("SQL_ERROR", `${msg}${e.hint ? ` (hint: ${e.hint})` : ""}`);
