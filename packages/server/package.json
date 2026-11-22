@@ -1,0 +1,62 @@
+{
+  "name": "safesql-mcp",
+  "version": "0.1.0",
+  "description": "Safe, fast, token-efficient MCP server for SQLite and PostgreSQL. Read-only by default at the engine level, with dry-run writes, redaction, policies and an audit log.",
+  "type": "module",
+  "license": "MIT",
+  "author": "safesql-mcp contributors",
+  "homepage": "https://github.com/cryptodeta/safesql-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cryptodeta/safesql-mcp.git",
+    "directory": "packages/server"
+  },
+  "bugs": {
+    "url": "https://github.com/cryptodeta/safesql-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "sql",
+    "sqlite",
+    "postgres",
+    "postgresql",
+    "database",
+    "read-only",
+    "ai",
+    "llm",
+    "claude",
+    "cursor"
+  ],
+  "bin": {
+    "safesql-mcp": "dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.16"
+  },
+  "scripts": {
+    "build": "tsup",
+    "prepack": "cp ../../README.md ../../LICENSE ."
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.0",
+    "pg": "^8.16.0",
+    "pg-cursor": "^2.15.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@safesql/core": "0.1.0"
+  }
+}

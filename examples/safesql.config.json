@@ -1,0 +1,38 @@
+{
+  "defaults": {
+    "maxRows": 100,
+    "timeoutMs": 15000,
+    "maxAffectedRows": 1000,
+    "redact": "auto",
+    "maskEmails": false
+  },
+  "databases": {
+    "shop": {
+      "url": "./examples/shop.db",
+      "description": "Sample online shop",
+      "denyColumns": ["customers.password_hash"],
+      "denyTables": ["api_keys"]
+    },
+    "analytics": {
+      "url": "${ANALYTICS_DATABASE_URL}",
+      "mode": "read",
+      "allowTables": ["public.*", "reporting.*"],
+      "redactColumns": ["*.phone", "users.address"],
+      "timeoutMs": 30000
+    },
+    "staging": {
+      "url": "postgres://app@localhost:5432/staging",
+      "mode": "write",
+      "maxAffectedRows": 100
+    }
+  },
+  "queries": {
+    "revenue_by_month": {
+      "db": "shop",
+      "description": "Revenue per month, excluding cancelled and refunded orders",
+      "sql": "SELECT substr(created_at, 1, 7) AS month, count(*) AS orders, round(sum(total), 2) AS revenue FROM orders WHERE status NOT IN ('cancelled', 'refunded') GROUP BY 1 ORDER BY 1"
+    }
+  },
+  "exportDir": "./exports",
+  "auditLog": "./safesql-audit.jsonl"
+}

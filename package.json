@@ -1,0 +1,35 @@
+{
+  "name": "safesql-mcp-monorepo",
+  "private": true,
+  "type": "module",
+  "description": "Monorepo for safesql-mcp: a safe, token-efficient SQL MCP server for SQLite and PostgreSQL.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/core",
+    "packages/server"
+  ],
+  "engines": {
+    "node": ">=22.16"
+  },
+  "scripts": {
+    "build": "npm run build -w safesql-mcp",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "vitest run",
+    "test:pg": "SAFESQL_TEST_PG_URL=${SAFESQL_TEST_PG_URL:-postgres://postgres:postgres@localhost:5432/postgres} vitest run packages/core/test/postgres-engine.test.ts",
+    "smoke": "node scripts/smoke.mjs",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run build && npm run smoke",
+    "start": "node packages/server/dist/cli.js",
+    "demo": "node packages/server/dist/cli.js demo examples/shop.db --force && node packages/server/dist/cli.js demo --sql postgres > examples/shop-postgres.sql"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.2.0",
+    "@types/node": "^22.15.0",
+    "@types/pg": "^8.15.0",
+    "@types/pg-cursor": "^2.7.2",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

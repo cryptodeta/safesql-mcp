@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / node ${{ matrix.node }}${{ matrix.pg && format(' / postgres {0}', matrix.pg) || '' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, node: 22, pg: 17 }
+          - { os: ubuntu-latest, node: 24, pg: 13 }
+          - { os: windows-latest, node: 22 }
+          - { os: macos-latest, node: 22 }
+    env:
+      SAFESQL_TEST_PG_URL: ${{ matrix.pg && 'postgres://postgres:postgres@localhost:5432/postgres' || '' }}
+    steps:
+      - name: Start PostgreSQL ${{ matrix.pg }}
+        if: matrix.pg
+        run: |
+          docker run -d --name pg -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:${{ matrix.pg }}-alpine
+          for i in $(seq 1 30); do docker exec pg pg_isready -U postgres && break; sleep 1; done
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Smoke test (stdio + HTTP)
+        run: npm run smoke
+      - name: CLI
+        run: |
+          node packages/server/dist/cli.js --version
+          node packages/server/dist/cli.js tools
+          node packages/server/dist/cli.js doctor examples/shop.db --audit-log off
+          node packages/server/dist/cli.js query examples/shop.db "SELECT count(*) AS orders FROM orders"
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -t safesql-mcp .
+      - name: Health check
+        run: |
+          docker run -d --name s -p 3000:3000 -e SAFESQL_HTTP_TOKEN=ci safesql-mcp --http examples/shop.db
+          for i in $(seq 1 20); do curl -fs localhost:3000/health && break; sleep 1; done
+          curl -fs localhost:3000/health || (docker logs s; exit 1)
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:3000/mcp)" = "401"
