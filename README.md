@@ -62,7 +62,7 @@ Check everything is wired up correctly (connection, read-only enforcement, role 
 npx -y safesql-mcp doctor ./app.db
 ```
 
-> Not on npm yet? Run from source: `git clone https://github.com/cryptodeta/safesql-mcp && cd safesql-mcp && npm install && npm run build`,
+> Prefer running from source? `git clone https://github.com/cryptodeta/safesql-mcp && cd safesql-mcp && npm install && npm run build`,
 > then use `node /path/to/safesql-mcp/packages/server/dist/cli.js` wherever this README says `npx -y safesql-mcp`.
 
 ## Client configuration
@@ -369,7 +369,6 @@ The published package is about 165 KB of JavaScript with four small runtime depe
   (a few milliseconds).
 - `offset` paging re-runs the query and skips rows; for deep pagination prefer keyset filters
   (`WHERE id > ...`).
-- Not published to npm yet; use the from-source instructions above until it is.
 
 ## Install from a registry
 
