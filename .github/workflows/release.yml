@@ -121,6 +121,7 @@ jobs:
       id-token: write
     env:
       VERSION: ${{ needs.check.outputs.version }}
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v5
@@ -133,7 +134,8 @@ jobs:
           registry-url: https://registry.npmjs.org
       - name: Publish
         run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
+          # setup-node puts a placeholder in NODE_AUTH_TOKEN, so test the secret itself.
+          if [ -z "$NPM_TOKEN" ]; then
             echo "::warning::NPM_TOKEN secret is not set; skipping the npmjs.org publish. Add it under Settings > Secrets and variables > Actions."
             echo "npmjs.org publish skipped: NPM_TOKEN is not set." >> "$GITHUB_STEP_SUMMARY"
             exit 0
