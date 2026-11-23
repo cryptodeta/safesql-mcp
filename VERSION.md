@@ -16,7 +16,10 @@ The `Release` workflow then compares this version with the latest `v*` git tag:
 
 - **Greater**: syncs the version into every `package.json`, `package-lock.json` and `src/version.ts`
   (`scripts/version.mjs sync`), runs lint, typecheck, tests and build, creates the tag `vX.Y.Z` and a GitHub Release with
-  the npm tarball attached, then publishes to npmjs.org, GitHub Packages and `ghcr.io`.
+  the npm tarball attached, then publishes to npmjs.org (trusted publishing, no token), GitHub Packages and `ghcr.io`.
 - **Equal or lower**: nothing is tagged or published; the workflow finishes green with a skip note.
 
 Run `node scripts/version.mjs sync` locally if you want the package files updated in the same commit.
+
+To retry publishing an existing tag, run the `Release` workflow manually with `republish` checked.
+See the Releasing section of README.md for the npm trusted publisher setup and the first manual publish.

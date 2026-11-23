@@ -32,7 +32,6 @@
     "safesql-mcp": "dist/cli.js"
   },
   "main": "./dist/index.js",
-  "types": "./src/index.ts",
   "exports": {
     ".": {
       "import": "./dist/index.js"
@@ -48,7 +47,8 @@
   },
   "scripts": {
     "build": "tsup",
-    "prepack": "cp ../../README.md ../../LICENSE ."
+    "prepack": "node -e \"for (const f of ['README.md', 'LICENSE']) require('node:fs').copyFileSync('../../' + f, f)\"",
+    "prepublishOnly": "node ../../scripts/version.mjs check && node -e \"require('node:fs').accessSync('dist/cli.js')\""
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.0",

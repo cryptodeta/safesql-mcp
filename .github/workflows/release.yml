@@ -2,10 +2,16 @@ name: Release
 
 # Runs on every push to main. A release happens only when VERSION.md holds a version
 # strictly greater than the latest v* tag; otherwise the workflow ends green with a skip note.
+# Run it by hand with "republish" to retry registry publishing for an existing tag (no new tag or release).
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      republish:
+        description: "Retry npmjs.org / GitHub Packages publishing for the current VERSION.md tag"
+        type: boolean
+        default: false
 
 concurrency:
   group: release
@@ -26,6 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release: ${{ steps.check.outputs.release }}
+      publish: ${{ steps.publish.outputs.publish }}
       version: ${{ steps.check.outputs.version }}
       prerelease: ${{ steps.check.outputs.prerelease }}
     steps:
@@ -38,6 +45,19 @@ jobs:
           node-version: 22
       - id: check
         run: node scripts/version.mjs release-check >> "$GITHUB_OUTPUT"
+      - id: publish
+        env:
+          REPUBLISH: ${{ inputs.republish }}
+          VERSION: ${{ steps.check.outputs.version }}
+        run: |
+          if [ "${{ steps.check.outputs.release }}" = "true" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          elif [ "$REPUBLISH" = "true" ] && git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "Republishing the existing tag v$VERSION to the registries (no new tag or release)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
 
   release:
     name: Build, tag and GitHub Release
@@ -70,7 +90,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [ -n "$(git status --porcelain)" ]; then
+          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
             git commit -am "chore(release): v$VERSION [skip ci]"
             git push origin HEAD:main || echo "::warning::Could not push the version sync commit to main; the tag still points at it."
           fi
@@ -107,52 +127,79 @@ jobs:
           else
             gh release create "v$VERSION" release-assets/* --title "v$VERSION" --notes-file release-notes.md --verify-tag "${flags[@]}"
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: npm-package
           path: release-assets/
 
   npmjs:
-    name: Publish to npmjs.org
+    name: Publish to npmjs.org (trusted publishing)
     needs: [check, release]
+    if: >-
+      always() && needs.check.outputs.publish == 'true' &&
+      (needs.release.result == 'success' || needs.release.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
+      id-token: write # OIDC: npm trusted publishing, provenance is added automatically
     env:
       VERSION: ${{ needs.check.outputs.version }}
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v5
         with:
           ref: v${{ needs.check.outputs.version }}
+      # No registry-url here: setup-node would write an .npmrc with a placeholder NODE_AUTH_TOKEN,
+      # and npm must authenticate with OIDC instead.
       - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
-          registry-url: https://registry.npmjs.org
-      - name: Publish
+      - name: Use npm >= 11.5.1 (required for trusted publishing)
+        run: npm install -g npm@^11.5.1 && npm --version
+      - name: Check npmjs.org and the trusted publisher
+        id: probe
         run: |
-          # setup-node puts a placeholder in NODE_AUTH_TOKEN, so test the secret itself.
-          if [ -z "$NPM_TOKEN" ]; then
-            echo "::warning::NPM_TOKEN secret is not set; skipping the npmjs.org publish. Add it under Settings > Secrets and variables > Actions."
-            echo "npmjs.org publish skipped: NPM_TOKEN is not set." >> "$GITHUB_STEP_SUMMARY"
+          skip() {
+            echo "::warning::$1"
+            echo "npmjs.org publish skipped: $1" >> "$GITHUB_STEP_SUMMARY"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
+          }
+          if ! npm view "$PACKAGE_NAME" name >/dev/null 2>&1; then
+            skip "$PACKAGE_NAME is not on npmjs.org yet. Publish the first version manually, then add the trusted publisher (README > Releasing)."
           fi
           if npm view "$PACKAGE_NAME@$VERSION" version >/dev/null 2>&1; then
-            echo "$PACKAGE_NAME@$VERSION is already on npmjs.org" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "::notice::$PACKAGE_NAME@$VERSION is already on npmjs.org"
+            echo "$PACKAGE_NAME@$VERSION is already on npmjs.org; nothing to publish." >> "$GITHUB_STEP_SUMMARY"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          npm ci
-          npm run build
+          # Exchange this job's OIDC token the same way npm does; this fails when no trusted publisher matches.
+          oidc=$(curl -fsS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=npm:registry.npmjs.org" | jq -r .value)
+          pkg=$(node -p 'encodeURIComponent(process.argv[1])' "$PACKAGE_NAME")
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $oidc" \
+            "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/$pkg")
+          if [ "$code" != "200" ]; then
+            skip "No npm trusted publisher matches this workflow (HTTP $code). On npmjs.com add one for cryptodeta/${GITHUB_REPOSITORY#*/}, workflow release.yml, then re-run with republish."
+          fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+      - if: steps.probe.outputs.publish == 'true'
+        run: npm ci && npm run build
+      - name: Publish with OIDC
+        if: steps.probe.outputs.publish == 'true'
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: |
           tag=latest; case "$VERSION" in *-*) tag=next;; esac
-          npm publish -w "$PACKAGE_NAME" --provenance --access public --tag "$tag"
+          npm publish --access public --tag "$tag"
           echo "Published https://www.npmjs.com/package/$PACKAGE_NAME/v/$VERSION" >> "$GITHUB_STEP_SUMMARY"
 
   github-packages:
     name: Publish to GitHub Packages (npm)
     needs: [check, release]
+    if: >-
+      always() && needs.check.outputs.publish == 'true' &&
+      (needs.release.result == 'success' || needs.release.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -170,8 +217,6 @@ jobs:
           cache: npm
           registry-url: https://npm.pkg.github.com
           scope: "@cryptodeta"
-      - run: npm ci
-      - run: npm run build
       - name: Publish as @cryptodeta scope
         working-directory: ${{ env.PACKAGE_DIR }}
         run: |
@@ -179,6 +224,7 @@ jobs:
             echo "$GH_PACKAGE_NAME@$VERSION is already on GitHub Packages" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
+          (cd ../.. && npm ci && npm run build)
           # GitHub Packages only accepts packages scoped to the repository owner.
           npm pkg set name="$GH_PACKAGE_NAME" publishConfig.registry=https://npm.pkg.github.com
           tag=latest; case "$VERSION" in *-*) tag=next;; esac
@@ -196,22 +242,22 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: v${{ needs.check.outputs.version }}
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE }}
           tags: |
             type=semver,pattern={{version}},value=v${{ needs.check.outputs.version }}
             type=semver,pattern={{major}}.{{minor}},value=v${{ needs.check.outputs.version }}
             type=raw,value=latest,enable=${{ needs.check.outputs.prerelease != 'true' }}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64

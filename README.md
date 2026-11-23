@@ -404,9 +404,38 @@ Release and publishes to npmjs.org, GitHub Packages and ghcr.io only when the ne
 latest tag; an equal or lower version is a green no-op. Package versions are synced from `VERSION.md`
 automatically (`node scripts/version.mjs sync` does the same locally).
 
-Maintainer setup: add an `NPM_TOKEN` repository secret (npm automation or granular token with publish
-rights). Without it the npmjs.org step is skipped with a warning; GitHub Packages and ghcr.io use the built-in
-`GITHUB_TOKEN`.
+### npmjs.org trusted publishing (no tokens)
+
+npmjs.org releases use [trusted publishing](https://docs.npmjs.com/trusted-publishers) (OIDC), so there is no
+`NPM_TOKEN` secret. npm only lets you add a trusted publisher to a package that already exists, so the first
+version is published by hand:
+
+1. First publish, from a clean checkout of `main` (Node 22.16+, logged in with `npm login`):
+
+   ```bash
+   git clone https://github.com/cryptodeta/safesql-mcp && cd safesql-mcp
+   node scripts/version.mjs sync      # package.json versions come from VERSION.md
+   npm ci
+   npm run build
+   cd packages/server
+   npm publish --access public        # checks versions and dist/ first, copies README.md and LICENSE in
+   ```
+
+2. On npmjs.com open the package page, then **Settings** -> **Trusted Publisher** -> **GitHub Actions** and fill in:
+   - Organization or user: `cryptodeta`
+   - Repository: `safesql-mcp`
+   - Workflow filename: `release.yml`
+   - Environment name: leave empty
+
+   Optionally set **Publishing access** to "Require two-factor authentication and disallow tokens".
+
+3. From then on, bumping `VERSION.md` on `main` publishes through OIDC with provenance. To publish a version
+   whose tag already exists (for example the one you published before step 2, or after a failed run), run the
+   `Release` workflow manually with **republish** checked (`gh workflow run release.yml -f republish=true`).
+   It never creates a second tag or release.
+
+Until the package exists and the trusted publisher is set, the npmjs.org job ends green with a warning.
+GitHub Packages and ghcr.io use the built-in `GITHUB_TOKEN` and need no setup.
 
 ## License
 
