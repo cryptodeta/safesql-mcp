@@ -371,6 +371,20 @@ The published package is about 165 KB of JavaScript with four small runtime depe
   (`WHERE id > ...`).
 - Not published to npm yet; use the from-source instructions above until it is.
 
+## Install from a registry
+
+Every release is published to three places (see [Releases](https://github.com/cryptodeta/safesql-mcp/releases)):
+
+| Registry                  | Package                                                                                                  | Install                                                                  |
+| ------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| npmjs.org                 | [`safesql-mcp`](https://www.npmjs.com/package/safesql-mcp)                                               | `npx -y safesql-mcp` or `npm i -g safesql-mcp`                           |
+| GitHub Packages           | [`@cryptodeta/safesql-mcp`](https://github.com/cryptodeta/safesql-mcp/pkgs/npm/safesql-mcp)              | `npm i -g @cryptodeta/safesql-mcp --registry=https://npm.pkg.github.com` |
+| GitHub Container Registry | [`ghcr.io/cryptodeta/safesql-mcp`](https://github.com/cryptodeta/safesql-mcp/pkgs/container/safesql-mcp) | `docker pull ghcr.io/cryptodeta/safesql-mcp:latest`                      |
+
+GitHub Packages needs a GitHub token with `read:packages` even for public packages
+(`npm login --scope=@cryptodeta --auth-type=legacy --registry=https://npm.pkg.github.com`).
+The npm tarball is also attached to every GitHub Release.
+
 ## Development
 
 ```bash
@@ -381,6 +395,18 @@ SAFESQL_TEST_PG_URL=postgres://postgres:postgres@localhost:5432/postgres npm tes
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the layout and guidelines.
+
+## Releasing
+
+[`VERSION.md`](VERSION.md) holds the release version on its first line. To ship a release, add the notes to
+`CHANGELOG.md`, bump that line and push to `main`. The `Release` workflow tags `vX.Y.Z`, creates the GitHub
+Release and publishes to npmjs.org, GitHub Packages and ghcr.io only when the new version is greater than the
+latest tag; an equal or lower version is a green no-op. Package versions are synced from `VERSION.md`
+automatically (`node scripts/version.mjs sync` does the same locally).
+
+Maintainer setup: add an `NPM_TOKEN` repository secret (npm automation or granular token with publish
+rights). Without it the npmjs.org step is skipped with a warning; GitHub Packages and ghcr.io use the built-in
+`GITHUB_TOKEN`.
 
 ## License
 

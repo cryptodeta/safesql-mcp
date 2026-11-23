@@ -1,0 +1,221 @@
+name: Release
+
+# Runs on every push to main. A release happens only when VERSION.md holds a version
+# strictly greater than the latest v* tag; otherwise the workflow ends green with a skip note.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  PACKAGE_DIR: packages/server
+  PACKAGE_NAME: safesql-mcp
+  GH_PACKAGE_NAME: "@cryptodeta/safesql-mcp"
+  IMAGE: ghcr.io/cryptodeta/safesql-mcp
+
+jobs:
+  check:
+    name: Check VERSION.md
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.check.outputs.release }}
+      version: ${{ steps.check.outputs.version }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - id: check
+        run: node scripts/version.mjs release-check >> "$GITHUB_OUTPUT"
+
+  release:
+    name: Build, tag and GitHub Release
+    needs: check
+    if: needs.check.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Sync package versions from VERSION.md
+        run: node scripts/version.mjs sync
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Smoke test
+        run: npm run smoke
+      - name: Commit synced versions
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -am "chore(release): v$VERSION [skip ci]"
+            git push origin HEAD:main || echo "::warning::Could not push the version sync commit to main; the tag still points at it."
+          fi
+      - name: Pack npm tarball
+        run: |
+          mkdir -p release-assets
+          npm pack -w "$PACKAGE_NAME" --pack-destination release-assets
+          ls -l release-assets
+      - name: Tag
+        run: |
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "Tag v$VERSION already exists"
+          else
+            git tag -a "v$VERSION" -m "v$VERSION"
+            git push origin "v$VERSION"
+          fi
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/version.mjs notes "$VERSION" > release-notes.md
+          cat >> release-notes.md <<NOTES
+
+          ## Install
+
+          - npm: \`npx -y $PACKAGE_NAME@$VERSION\`
+          - GitHub Packages: \`$GH_PACKAGE_NAME@$VERSION\` from https://npm.pkg.github.com
+          - Docker: \`docker pull $IMAGE:$VERSION\`
+          NOTES
+          flags=()
+          [ "${{ needs.check.outputs.prerelease }}" = "true" ] && flags+=(--prerelease)
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            gh release upload "v$VERSION" release-assets/* --clobber
+          else
+            gh release create "v$VERSION" release-assets/* --title "v$VERSION" --notes-file release-notes.md --verify-tag "${flags[@]}"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-package
+          path: release-assets/
+
+  npmjs:
+    name: Publish to npmjs.org
+    needs: [check, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: v${{ needs.check.outputs.version }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - name: Publish
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::warning::NPM_TOKEN secret is not set; skipping the npmjs.org publish. Add it under Settings > Secrets and variables > Actions."
+            echo "npmjs.org publish skipped: NPM_TOKEN is not set." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if npm view "$PACKAGE_NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "$PACKAGE_NAME@$VERSION is already on npmjs.org" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          npm ci
+          npm run build
+          tag=latest; case "$VERSION" in *-*) tag=next;; esac
+          npm publish -w "$PACKAGE_NAME" --provenance --access public --tag "$tag"
+          echo "Published https://www.npmjs.com/package/$PACKAGE_NAME/v/$VERSION" >> "$GITHUB_STEP_SUMMARY"
+
+  github-packages:
+    name: Publish to GitHub Packages (npm)
+    needs: [check, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: v${{ needs.check.outputs.version }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: "@cryptodeta"
+      - run: npm ci
+      - run: npm run build
+      - name: Publish as @cryptodeta scope
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: |
+          if npm view "$GH_PACKAGE_NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "$GH_PACKAGE_NAME@$VERSION is already on GitHub Packages" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # GitHub Packages only accepts packages scoped to the repository owner.
+          npm pkg set name="$GH_PACKAGE_NAME" publishConfig.registry=https://npm.pkg.github.com
+          tag=latest; case "$VERSION" in *-*) tag=next;; esac
+          npm publish --tag "$tag"
+          echo "Published https://github.com/${{ github.repository }}/pkgs/npm/safesql-mcp" >> "$GITHUB_STEP_SUMMARY"
+
+  docker:
+    name: Publish Docker image to ghcr.io
+    needs: [check, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: v${{ needs.check.outputs.version }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}},value=v${{ needs.check.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.check.outputs.version }}
+            type=raw,value=latest,enable=${{ needs.check.outputs.prerelease != 'true' }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - run: echo "Published ${{ env.IMAGE }}:${{ needs.check.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
