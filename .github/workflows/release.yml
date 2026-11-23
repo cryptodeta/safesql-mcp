@@ -174,7 +174,7 @@ jobs:
           pkg=$(node -p 'encodeURIComponent(process.argv[1])' "$PACKAGE_NAME")
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $oidc" \
             "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/$pkg")
-          if [ "$code" != "200" ]; then
+          if [ "${code:0:1}" != "2" ]; then # 200 or 201 means the exchange worked
             skip "No npm trusted publisher matches this workflow (HTTP $code). On npmjs.com add one for cryptodeta/${GITHUB_REPOSITORY#*/}, workflow release.yml, then re-run with republish."
           fi
           echo "npm trusted publisher check: OK (OIDC token exchange succeeded)" | tee -a "$GITHUB_STEP_SUMMARY"

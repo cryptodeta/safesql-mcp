@@ -2,7 +2,12 @@
 
 **Safe SQL for AI assistants. SQLite and PostgreSQL in one zero-config MCP server, read-only by default.**
 
+[![npm](https://img.shields.io/npm/v/safesql-mcp?logo=npm)](https://www.npmjs.com/package/safesql-mcp)
+[![npm downloads](https://img.shields.io/npm/dm/safesql-mcp)](https://www.npmjs.com/package/safesql-mcp)
 [![CI](https://github.com/cryptodeta/safesql-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/cryptodeta/safesql-mcp/actions/workflows/ci.yml)
+[![Release](https://github.com/cryptodeta/safesql-mcp/actions/workflows/release.yml/badge.svg)](https://github.com/cryptodeta/safesql-mcp/actions/workflows/release.yml)
+[![GitHub release](https://img.shields.io/github/v/release/cryptodeta/safesql-mcp)](https://github.com/cryptodeta/safesql-mcp/releases)
+[![Docker](https://img.shields.io/badge/docker-ghcr.io%2Fcryptodeta%2Fsafesql--mcp-2496ED?logo=docker&logoColor=white)](https://github.com/cryptodeta/safesql-mcp/pkgs/container/safesql-mcp)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![node](https://img.shields.io/badge/node-%3E%3D22.16-brightgreen)
 
@@ -20,6 +25,54 @@ Claude: (calls query)
         BR | 19 | 26634.39
         ...
 ```
+
+## Install
+
+Requires Node.js 22.16 or newer. Published on [npmjs.org](https://www.npmjs.com/package/safesql-mcp),
+[GitHub Packages](https://github.com/cryptodeta/safesql-mcp/pkgs/npm/safesql-mcp) and [ghcr.io](https://github.com/cryptodeta/safesql-mcp/pkgs/container/safesql-mcp);
+every [GitHub Release](https://github.com/cryptodeta/safesql-mcp/releases) also has the npm tarball attached.
+
+```bash
+# Run without installing (npmjs.org)
+npx -y safesql-mcp --help
+
+# Or install globally
+npm i -g safesql-mcp
+safesql-mcp --version
+
+# GitHub Packages (needs a GitHub token with read:packages, even for public packages)
+npm login --scope=@cryptodeta --auth-type=legacy --registry=https://npm.pkg.github.com
+npm i -g @cryptodeta/safesql-mcp --registry=https://npm.pkg.github.com
+
+# Docker (Streamable HTTP on http://localhost:3000/mcp)
+docker run -d -p 3000:3000 -e SAFESQL_HTTP_TOKEN=change-me \
+  -e DATABASE_URL=postgres://reader:secret@host:5432/app ghcr.io/cryptodeta/safesql-mcp
+```
+
+Add it to your AI app (more clients and options in [Client configuration](#client-configuration)):
+
+**Claude Desktop** (`claude_desktop_config.json`) and **Cursor** (`~/.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "safesql": { "command": "npx", "args": ["-y", "safesql-mcp", "/absolute/path/to/app.db"] }
+  }
+}
+```
+
+**VS Code** (`.vscode/mcp.json`):
+
+```json
+{
+  "servers": {
+    "safesql": { "type": "stdio", "command": "npx", "args": ["-y", "safesql-mcp", "/absolute/path/to/app.db"] }
+  }
+}
+```
+
+Or let it write the config for you: `npx -y safesql-mcp init claude /absolute/path/to/app.db` (also `cursor`, `vscode`, `windsurf`,
+`claude-code`, `all`).
 
 ## Why this one
 
@@ -369,20 +422,6 @@ The published package is about 165 KB of JavaScript with four small runtime depe
   (a few milliseconds).
 - `offset` paging re-runs the query and skips rows; for deep pagination prefer keyset filters
   (`WHERE id > ...`).
-
-## Install from a registry
-
-Every release is published to three places (see [Releases](https://github.com/cryptodeta/safesql-mcp/releases)):
-
-| Registry                  | Package                                                                                                  | Install                                                                  |
-| ------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| npmjs.org                 | [`safesql-mcp`](https://www.npmjs.com/package/safesql-mcp)                                               | `npx -y safesql-mcp` or `npm i -g safesql-mcp`                           |
-| GitHub Packages           | [`@cryptodeta/safesql-mcp`](https://github.com/cryptodeta/safesql-mcp/pkgs/npm/safesql-mcp)              | `npm i -g @cryptodeta/safesql-mcp --registry=https://npm.pkg.github.com` |
-| GitHub Container Registry | [`ghcr.io/cryptodeta/safesql-mcp`](https://github.com/cryptodeta/safesql-mcp/pkgs/container/safesql-mcp) | `docker pull ghcr.io/cryptodeta/safesql-mcp:latest`                      |
-
-GitHub Packages needs a GitHub token with `read:packages` even for public packages
-(`npm login --scope=@cryptodeta --auth-type=legacy --registry=https://npm.pkg.github.com`).
-The npm tarball is also attached to every GitHub Release.
 
 ## Development
 
